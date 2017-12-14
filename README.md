@@ -1,6 +1,7 @@
 # android_properties
 ## summary
-This tool is get/set system properties.Support all android versions in theory. But I just tested on android M and N. 
+This tool is get/set system properties.Support all android versions in theory.
+I just tested on android M, N and O.
 
 Set operation need root first, and can set all the properties(include prefixed with 'ro').
 ## usage
@@ -14,4 +15,8 @@ Set operation need root first, and can set all the properties(include prefixed w
 In the root directory, use ndk-build.bat(Windows) or ndk-build.sh(Linux)
 
 
+## timeline
+
+    2017.10.15  first commit
+    2017.12.14  support for android O
 

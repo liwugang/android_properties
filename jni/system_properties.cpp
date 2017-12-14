@@ -21,7 +21,8 @@
 #define AREA_SIZE         (128 * 1024)
 #define AREA_DATA_SIZE     (AREA_SIZE - sizeof(prop_area))
 
-#define ANDROID_N	24
+#define ANDROID_N   24
+#define ANDROID_O   26
 
 #define LOG_TYPE_CONSOLE	1
 #define LOG_TYPE_LOGCAT 	2
@@ -143,8 +144,8 @@ context_node *get_context_node(const char *context_name) {
     return NULL;
 }
 
-bool initialize_contexts() {
-    FILE *file = fopen("/property_contexts", "r");
+bool initialize_contexts(const char *context_file) {
+    FILE *file = fopen(context_file, "r");
     if (!file) {
         return false;
     }
@@ -533,8 +534,16 @@ int main(int argc, char *argv[]) {
             return -1;
         }
     }
-    if (get_sdk_version() >= ANDROID_N) {
-        initialize_contexts();
+    if (get_sdk_version() >= ANDROID_O) {
+        if (access("/system/etc/selinux/plat_property_contexts", R_OK) != -1) {
+            initialize_contexts("/system/etc/selinux/plat_property_contexts");
+            initialize_contexts("/vendor/etc/selinux/nonplat_property_contexts");
+        } else {
+            initialize_contexts("/plat_property_contexts");
+            initialize_contexts("/nonplat_property_contexts");
+        }
+    } else if (get_sdk_version() >= ANDROID_N) {
+        initialize_contexts("/property_contexts");
     }
     if (need_all) {
         dump_all();
