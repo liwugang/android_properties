@@ -76,6 +76,8 @@ typedef struct prop_area {
 } prop_area;
 
 int g_log_type = LOG_TYPE_CONSOLE + LOG_TYPE_LOGCAT; // 默认输出到logcat和console
+bool g_need_security_context = false;
+char *g_current_security_context = NULL;
 
 prefix_node *g_prefixs = NULL;
 context_node *g_contexts = NULL;
@@ -297,6 +299,30 @@ prop_info *new_prop_info(prop_area *p_area, const char *prop_name, uint8_t namel
     return info;
 }
 
+int get_sdk_version();
+
+char *get_security_context(char *prop_name) {
+    if (g_current_security_context != NULL) {
+        return g_current_security_context;
+    }
+
+    /**
+     * below Android N, ingnore "ro." prefix in the property_contexts file
+     */
+    if (get_sdk_version() < ANDROID_N) {
+        char *name = strstr(prop_name, "ro.");
+        if (name != NULL && strlen(name) == strlen(prop_name)) {
+            prop_name = prop_name + strlen("ro.");
+        }
+    }
+    prefix_node *p_prefix = get_prefix_node(prop_name);
+    if (p_prefix == NULL || p_prefix->context == NULL) {
+        return NULL;
+    } else {
+        return p_prefix->context->name;
+    }
+}
+
 void recursive(prop_area *p_area, uint32_t off) {
     prop_bt *p_bt = get_prop_bt(p_area, off);
     if (p_bt == NULL) {
@@ -305,7 +331,11 @@ void recursive(prop_area *p_area, uint32_t off) {
     if (p_bt->prop != 0) {
         prop_info *p_info = get_prop_info(p_area, p_bt->prop);
         if (p_info != NULL) {
-            print_log("[%s]: [%s]\n", p_info->name, p_info->value);
+            print_log("[%s]: [%s]", p_info->name, p_info->value);
+            if (g_need_security_context) {
+                print_log(" [%s]", get_security_context(p_info->name));
+            }
+            print_log("\n");
         }
     }
     if (p_bt->left != 0) {
@@ -355,6 +385,9 @@ void dump_all() {
             char context_file[128] = PROPERTIES_FILE;
             strcat(context_file, "/");
             strcat(context_file, p_context->name);
+            if (g_need_security_context) {
+                g_current_security_context = (char *)p_context->name;
+            }
             dump_properties_from_file(context_file);
         }
     }
@@ -452,13 +485,16 @@ void get_or_set_property_value(const char *prop_name, const char *prop_value) {
         p_area = map_prop_area(PROPERTIES_FILE, prop_value != NULL);
     } else {
         prefix_node *p_prefix = get_prefix_node(prop_name);
-        if (p_prefix == NULL && p_prefix->context == NULL) {
+        if (p_prefix == NULL || p_prefix->context == NULL) {
             fprintf(stderr, "can't find security context file!\n");
             return;
         }
         char context_file[128] = PROPERTIES_FILE;
         strcat(context_file, "/");
         strcat(context_file, p_prefix->context->name);
+        if (g_need_security_context) {
+            g_current_security_context = p_prefix->context->name;
+        }
         p_area = map_prop_area(context_file, prop_value != NULL);
     }
     prop_info *p_info = find_prop_info(p_area, prop_name, prop_value != NULL);
@@ -470,16 +506,21 @@ void get_or_set_property_value(const char *prop_name, const char *prop_value) {
             p_info->serial = (valuelen << 24) | (p_info->serial & 0xffffff);
             print_log("set %s == %s success\n", prop_name, prop_value);
         }
-        print_log("[%s]:[%s]\n", p_info->name, p_info->value);
+        print_log("[%s]:[%s]", p_info->name, p_info->value);
+        if (g_need_security_context) {
+            print_log(" [%s] ", get_security_context(p_info->name));
+        }
+        print_log("\n");
     }
 }
 
 static void usage() {
     fprintf(stderr,
-        "usage: system_properties [-h] [-a] [-l log_level] prop_name prop_value\n"
+        "usage: system_properties [-h] [-a] [-l log_level] [-s] prop_name prop_value\n"
         "  -h:                  display this help message\n"
         "  -a:                  dump all system properties\n"
         "  -l log_level:        console = 1 logcat = 2  consle + logcat = 3(default)\n"
+        "  -s                   print security context(selabel)\n"
         );
 }
 
@@ -490,7 +531,7 @@ int main(int argc, char *argv[]) {
 
     for (;;) {
         int option_index = 0;
-        int ic = getopt(argc, argv, "hal:");
+        int ic = getopt(argc, argv, "hal:s");
         if (ic < 0) {
             if (optind < argc) {
                 prop_name = argv[optind];
@@ -509,6 +550,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'l':
                 g_log_type = atoi(optarg);
+                break;
+            case 's':
+                g_need_security_context = true;
                 break;
             default:
                 usage();
@@ -538,11 +582,12 @@ int main(int argc, char *argv[]) {
         if (access("/system/etc/selinux/plat_property_contexts", R_OK) != -1) {
             initialize_contexts("/system/etc/selinux/plat_property_contexts");
             initialize_contexts("/vendor/etc/selinux/nonplat_property_contexts");
+            initialize_contexts("/vendor/etc/selinux/vendor_property_contexts"); // name changed in android P
         } else {
             initialize_contexts("/plat_property_contexts");
             initialize_contexts("/nonplat_property_contexts");
         }
-    } else if (get_sdk_version() >= ANDROID_N) {
+    } else {
         initialize_contexts("/property_contexts");
     }
     if (need_all) {
