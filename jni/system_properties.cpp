@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <errno.h>
 
 #include <android/log.h>
 #include <sys/system_properties.h>
@@ -583,6 +584,8 @@ int main(int argc, char *argv[]) {
             initialize_contexts("/system/etc/selinux/plat_property_contexts");
             initialize_contexts("/vendor/etc/selinux/nonplat_property_contexts");
             initialize_contexts("/vendor/etc/selinux/vendor_property_contexts"); // name changed in android P
+            initialize_contexts("/product/etc/selinux/product_property_contexts"); // Add in Android Q
+            initialize_contexts("/odm/etc/selinux/odm_property_contexts");
         } else {
             initialize_contexts("/plat_property_contexts");
             initialize_contexts("/nonplat_property_contexts");

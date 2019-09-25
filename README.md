@@ -22,4 +22,5 @@ In the root directory, use ndk-build.bat(Windows) or ndk-build.sh(Linux)
     2017.12.14  support for android O
     2018.08.03  1. support for android P
                 2. add security context(selabel) to print
+    2019.09.25  support for android Q
 
