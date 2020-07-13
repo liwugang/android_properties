@@ -23,4 +23,6 @@ In the root directory, use ndk-build.bat(Windows) or ndk-build.sh(Linux)
     2018.08.03  1. support for android P
                 2. add security context(selabel) to print
     2019.09.25  support for android Q
+    2020.07.13  1. support for android R
+                2. support long property name and property value
 

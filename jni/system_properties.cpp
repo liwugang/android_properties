@@ -38,14 +38,14 @@
 
 /** 属性前缀 */
 typedef struct prefix_node {
-    char name[PROP_NAME_MAX];
+    char *name;
     struct context_node *context;
     struct prefix_node *next;
 } prefix_node;
 
 /** 属性对应的security context */
 typedef struct context_node {
-    char name[PROP_VALUE_MAX];
+    char *name;
     void *mem;
     struct context_node *next;
 } context_node;
@@ -168,14 +168,14 @@ bool initialize_contexts(const char *context_file) {
         while (!isspace(*p) && *p != '\0') {
             p++;
         }
-        prefix_node *p_prefix = (prefix_node *) malloc(sizeof(prefix_node));
+        prefix_node *p_prefix = (prefix_node *) calloc(1, sizeof(prefix_node));
+        p_prefix->name = (char *) calloc(1, p - prop_prefix + 1);
         strncpy(p_prefix->name, prop_prefix, p - prop_prefix);
-        p_prefix->context = NULL;
-        p_prefix->next = NULL;
 
         while (isspace(*p))
             p++;
         if (*p == '\0') {
+            free(p_prefix->name);
             free(p_prefix);
             continue;
         }
@@ -186,10 +186,9 @@ bool initialize_contexts(const char *context_file) {
         *p = '\0';
         context_node *p_context = get_context_node(prop_context);
         if (p_context == NULL) {
-            p_context = (context_node *) malloc(sizeof(context_node));
+            p_context = (context_node *) calloc(1, sizeof(context_node));
+            p_context->name = (char *) calloc(1, strlen(prop_context) + 1);
             strcpy(p_context->name, prop_context);
-            p_context->mem = NULL;
-            p_context->next = NULL;
             add_context_node(p_context);
         }
         p_prefix->context = p_context;
@@ -202,13 +201,19 @@ bool initialize_contexts(const char *context_file) {
 }
 
     void cleanup_resource() {
-        prefix_node *p = g_prefixs;
+        prefix_node *p = g_prefixs, *pp;
         while (p != NULL) {
+            pp = p;
             p = p->next;
+            free(pp->name);
+            free(pp);
         }
-        context_node *q = g_contexts;
+        context_node *q = g_contexts, *qq;
         while (q != NULL) {
+            qq = q;
             q = q->next;
+            free(qq->name);
+            free(qq);
         }
     }
 
@@ -563,14 +568,11 @@ int main(int argc, char *argv[]) {
 
 
     if (prop_name != NULL) {
-        if (strlen(prop_name) >= PROP_NAME_MAX) {
-            fprintf(stderr, "prop_name[%s] is too long, need less %d\n", prop_name, PROP_NAME_MAX);
-            return -1;
-        }
         need_all = false;
     }
     if (prop_value != NULL) {
-        if (strlen(prop_value) >= PROP_VALUE_MAX) {
+        if (strlen(prop_value) >= PROP_VALUE_MAX &&
+            (strlen(prop_name) < strlen("ro.") || strncmp(prop_name, "ro.", strlen("ro.")) != 0)) {
             fprintf(stderr, "prop_value[%s] is too long, need less %d\n", prop_value, PROP_VALUE_MAX);
             return -1;
         }
@@ -586,6 +588,7 @@ int main(int argc, char *argv[]) {
             initialize_contexts("/vendor/etc/selinux/vendor_property_contexts"); // name changed in android P
             initialize_contexts("/product/etc/selinux/product_property_contexts"); // Add in Android Q
             initialize_contexts("/odm/etc/selinux/odm_property_contexts");
+            initialize_contexts("/system_ext/etc/selinux/system_ext_property_contexts"); // Add in Android R
         } else {
             initialize_contexts("/plat_property_contexts");
             initialize_contexts("/nonplat_property_contexts");
