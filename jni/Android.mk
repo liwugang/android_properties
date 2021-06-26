@@ -18,7 +18,7 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE    := system_properties
 
-LOCAL_SRC_FILES := system_properties.cpp
+LOCAL_SRC_FILES := system_properties.cpp property_info.cpp
 
 #LOCAL_CPPFLAGS += -O0 # for debug
 

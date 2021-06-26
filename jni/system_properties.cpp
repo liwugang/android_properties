@@ -16,6 +16,8 @@
 #include <android/log.h>
 #include <sys/system_properties.h>
 
+#include "property_info.h"
+
 #define PROP_NAME_MAX  32
 #define PROP_VALUE_MAX 92
 
@@ -79,6 +81,9 @@ typedef struct prop_area {
 int g_log_type = LOG_TYPE_CONSOLE + LOG_TYPE_LOGCAT; // 默认输出到logcat和console
 bool g_need_security_context = false;
 char *g_current_security_context = NULL;
+bool g_use_file = false;
+
+property_info g_info;
 
 prefix_node *g_prefixs = NULL;
 context_node *g_contexts = NULL;
@@ -387,15 +392,28 @@ void dump_all() {
     if (get_sdk_version() < ANDROID_N) {
         dump_properties_from_file(PROPERTIES_FILE);
     } else {
-        for (context_node *p_context = g_contexts; p_context != NULL; p_context = p_context->next) {
-            char context_file[128] = PROPERTIES_FILE;
-            strcat(context_file, "/");
-            strcat(context_file, p_context->name);
-            if (g_need_security_context) {
-                g_current_security_context = (char *)p_context->name;
+        if (g_use_file) {
+            for (context_node *p_context = g_contexts; p_context != NULL; p_context = p_context->next) {
+                char context_file[128] = PROPERTIES_FILE;
+                strcat(context_file, "/");
+                strcat(context_file, p_context->name);
+                if (g_need_security_context) {
+                    g_current_security_context = (char *)p_context->name;
+                }
+                dump_properties_from_file(context_file);
             }
-            dump_properties_from_file(context_file);
+        } else {
+            for (uint32_t i = 0; i < g_info.get_context_size(); i++) {
+                char context_file[128] = PROPERTIES_FILE;
+                strcat(context_file, "/");
+                strcat(context_file, g_info.get_context(i).c_str());
+                if (g_need_security_context) {
+                    g_current_security_context = (char *)g_info.get_context(i).c_str();
+                }
+                dump_properties_from_file(context_file);
+            }
         }
+
     }
 }
 
@@ -490,17 +508,26 @@ void get_or_set_property_value(const char *prop_name, const char *prop_value) {
     if (get_sdk_version() < ANDROID_N) {
         p_area = map_prop_area(PROPERTIES_FILE, prop_value != NULL);
     } else {
-        prefix_node *p_prefix = get_prefix_node(prop_name);
-        if (p_prefix == NULL || p_prefix->context == NULL) {
-            fprintf(stderr, "can't find security context file!\n");
-            return;
-        }
         char context_file[128] = PROPERTIES_FILE;
         strcat(context_file, "/");
-        strcat(context_file, p_prefix->context->name);
-        if (g_need_security_context) {
-            g_current_security_context = p_prefix->context->name;
+        if (g_use_file) {
+            prefix_node *p_prefix = get_prefix_node(prop_name);
+            if (p_prefix == NULL || p_prefix->context == NULL) {
+                fprintf(stderr, "can't find security context file!\n");
+                return;
+            }
+            strcat(context_file, p_prefix->context->name);
+            if (g_need_security_context) {
+                g_current_security_context = p_prefix->context->name;
+            }
+        } else {
+            string context_name = g_info.get_context(prop_name);
+            strcat(context_file, g_info.get_context(prop_name).c_str());
+            if (g_need_security_context) {
+                g_current_security_context = (char *)context_name.c_str();
+            }
         }
+
         p_area = map_prop_area(context_file, prop_value != NULL);
     }
     prop_info *p_info = find_prop_info(p_area, prop_name, prop_value != NULL);
@@ -522,11 +549,12 @@ void get_or_set_property_value(const char *prop_name, const char *prop_value) {
 
 static void usage() {
     fprintf(stderr,
-        "usage: system_properties [-h] [-a] [-l log_level] [-s] prop_name prop_value\n"
+        "usage: system_properties [-h] [-a] [-l log_level] [-s] [-f] prop_name prop_value\n"
         "  -h:                  display this help message\n"
         "  -a:                  dump all system properties\n"
         "  -l log_level:        console = 1 logcat = 2  consle + logcat = 3(default)\n"
         "  -s                   print security context(selabel)\n"
+        "  -f                   read property_contexts files to get security context\n"
         );
 }
 
@@ -537,7 +565,7 @@ int main(int argc, char *argv[]) {
 
     for (;;) {
         int option_index = 0;
-        int ic = getopt(argc, argv, "hal:s");
+        int ic = getopt(argc, argv, "hal:sf");
         if (ic < 0) {
             if (optind < argc) {
                 prop_name = argv[optind];
@@ -560,6 +588,9 @@ int main(int argc, char *argv[]) {
             case 's':
                 g_need_security_context = true;
                 break;
+            case 'f':
+                g_use_file = true;
+                break;
             default:
                 usage();
                 return -1;
@@ -581,21 +612,26 @@ int main(int argc, char *argv[]) {
             return -1;
         }
     }
-    if (get_sdk_version() >= ANDROID_O) {
-        if (access("/system/etc/selinux/plat_property_contexts", R_OK) != -1) {
-            initialize_contexts("/system/etc/selinux/plat_property_contexts");
-            initialize_contexts("/vendor/etc/selinux/nonplat_property_contexts");
-            initialize_contexts("/vendor/etc/selinux/vendor_property_contexts"); // name changed in android P
-            initialize_contexts("/product/etc/selinux/product_property_contexts"); // Add in Android Q
-            initialize_contexts("/odm/etc/selinux/odm_property_contexts");
-            initialize_contexts("/system_ext/etc/selinux/system_ext_property_contexts"); // Add in Android R
+
+    if (g_use_file || !g_info.is_valid()) {
+        g_use_file = true;
+        if (get_sdk_version() >= ANDROID_O) {
+            if (access("/system/etc/selinux/plat_property_contexts", R_OK) != -1) {
+                initialize_contexts("/system/etc/selinux/plat_property_contexts");
+                initialize_contexts("/vendor/etc/selinux/nonplat_property_contexts");
+                initialize_contexts("/vendor/etc/selinux/vendor_property_contexts"); // name changed in android P
+                initialize_contexts("/product/etc/selinux/product_property_contexts"); // Add in Android Q
+                initialize_contexts("/odm/etc/selinux/odm_property_contexts");
+                initialize_contexts("/system_ext/etc/selinux/system_ext_property_contexts"); // Add in Android R
+            } else {
+                initialize_contexts("/plat_property_contexts");
+                initialize_contexts("/nonplat_property_contexts");
+            }
         } else {
-            initialize_contexts("/plat_property_contexts");
-            initialize_contexts("/nonplat_property_contexts");
+            initialize_contexts("/property_contexts");
         }
-    } else {
-        initialize_contexts("/property_contexts");
     }
+
     if (need_all) {
         dump_all();
     } else {
